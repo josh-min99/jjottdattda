@@ -2238,7 +2238,13 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
     // 단일 공격 최종 확정 (모두에게 브로드캐스트)
     void ProcessSingleAttack_Final(AttackRequest attack, HexTile targetTile)
     {
-        int attackerTeam = (attack.attackerActorNum == 1) ? 1 : 2;
+        // ActorNumber가 아니라 실제 GamePlayer의 팀을 사용
+        int attackerTeam = GetTeamByActorNumSafe(attack.attackerActorNum);
+        if (attackerTeam < 1 || attackerTeam > 2)
+        {
+            Debug.LogError($"[ProcessSingleAttack_Final] Invalid attackerTeam {attackerTeam} for actor {attack.attackerActorNum}");
+            return;
+        }
         GamePlayer.VirusType vType = (GamePlayer.VirusType)attack.virusTypeIndex;
 
         // 최종 치사율 계산 (기존 로직과 동일)
@@ -2481,7 +2487,13 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
     // 즉시 공격 처리 함수 (본인에게만 임시 결과 전송, 저장 안 함)
     void ProcessSingleAttack_Immediate(AttackRequest attack, HexTile targetTile)
     {
-        int attackerTeam = (attack.attackerActorNum == 1) ? 1 : 2;
+        // ActorNumber가 아니라 실제 GamePlayer의 팀을 사용
+        int attackerTeam = GetTeamByActorNumSafe(attack.attackerActorNum);
+        if (attackerTeam < 1 || attackerTeam > 2)
+        {
+            Debug.LogError($"[ProcessSingleAttack_Immediate] Invalid attackerTeam {attackerTeam} for actor {attack.attackerActorNum}");
+            return;
+        }
         GamePlayer.VirusType vType = (GamePlayer.VirusType)attack.virusTypeIndex;
 
         // 최종 치사율 계산
@@ -2518,8 +2530,8 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
             int newPop = attack.originalPopulation - deaths;
             if (newPop < 0) newPop = 0;
 
+            // CleanZone 보너스는 즉시 반영이 아닌 최종 확정 시에만 지급 (동시 도착 시 승리자만 받도록)
             int immediateMoney = 0;
-            if (targetTile.isCleanZone) immediateMoney = moneyBonusCleanZone;
 
             bool shouldHide = (vType == GamePlayer.VirusType.Ambush);
 
@@ -2550,7 +2562,13 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
     // 단일 공격 처리 함수 (기존 로직)
     void ProcessSingleAttack(AttackRequest attack, HexTile targetTile)
     {
-        int attackerTeam = (attack.attackerActorNum == 1) ? 1 : 2;
+        // ActorNumber가 아니라 실제 GamePlayer의 팀을 사용
+        int attackerTeam = GetTeamByActorNumSafe(attack.attackerActorNum);
+        if (attackerTeam < 1 || attackerTeam > 2)
+        {
+            Debug.LogError($"[ProcessSingleAttack] Invalid attackerTeam {attackerTeam} for actor {attack.attackerActorNum}");
+            return;
+        }
         GamePlayer.VirusType vType = (GamePlayer.VirusType)attack.virusTypeIndex;
 
         // 최종 치사율 계산
@@ -2813,6 +2831,7 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
     }
 
     // [RPC] 타일 상태 동기화 및 결과 처리 (클라이언트)
+    // earnedMoney: CleanZone 보너스 - 즉시 반영 시 0, 최종 확정 시에만 실제 값 전달 (동시 도착 시 승리자만 받음)
     [PunRPC]
     public void RPC_SyncTileResult(int tileID, int newTeam, int newPop, bool isSuccess, int actorNum, int earnedMoney, bool shouldHide, int deathCount)
     {
@@ -2865,7 +2884,8 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
                 // 마스터: 누적 사망자 집계 (다음 라운드 보상용)
                 if (deathCount > 0 && PhotonNetwork.IsMasterClient)
                 {
-                    int attackerTeam = (actorNum == 1) ? 1 : 2;
+                    // ActorNumber가 아니라 실제 팀 사용
+                    int attackerTeam = GetTeamByActorNumSafe(actorNum);
                     if (attackerTeam == 1) cumulativeDeathsTeam1 += deathCount;
                     else if (attackerTeam == 2) cumulativeDeathsTeam2 += deathCount;
                 }
