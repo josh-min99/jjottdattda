@@ -20,10 +20,10 @@ MonoBehaviour:
     AppVersion: 
     UseNameServer: 1
     FixedRegion: 
-    Server: 
+    Server:
     Port: 0
-    ProxyServer: 
-    Protocol: 0
+    ProxyServer:
+    Protocol: 4
     EnableProtocolFallback: 1
     AuthMode: 0
     EnableLobbyStatistics: 0
