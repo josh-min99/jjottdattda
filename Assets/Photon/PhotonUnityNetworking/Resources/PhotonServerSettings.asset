@@ -1,0 +1,100 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9f3758f8f58fdef43803eb9be1df0608, type: 3}
+  m_Name: PhotonServerSettings
+  m_EditorClassIdentifier: 
+  AppSettings:
+    AppIdRealtime: 28c63cf0-7143-4f61-9c1c-1b5fde00c2fe
+    AppIdFusion: 
+    AppIdChat: 
+    AppIdVoice: 
+    AppVersion: 
+    UseNameServer: 1
+    FixedRegion: 
+    Server: 
+    Port: 0
+    ProxyServer: 
+    Protocol: 0
+    EnableProtocolFallback: 1
+    AuthMode: 0
+    EnableLobbyStatistics: 0
+    NetworkLogging: 1
+  DevRegion: kr
+  PunLogging: 0
+  EnableSupportLogger: 0
+  RunInBackground: 1
+  StartInOfflineMode: 0
+  RpcList:
+  - ClickRpc
+  - DestroyRpc
+  - DestroySpaceship
+  - Fire
+  - RespawnSpaceship
+  - RPC_RequestAttack
+  - RPC_SyncTile
+  - RPC_SyncTileResult
+  - RPC_SetTurn
+  - RPC_SetPhase
+  - RPC_SetCleanZone
+  - RPC_RequestVaccine
+  - RPC_RequestEnemyStats
+  - RPC_ShowEnemyStats
+  - RPC_ApplyTileEvent
+  - RPC_SetBioWeapon
+  - RPC_SetEvent
+  - RPC_SetGlobalDebuff
+  - RPC_UseItem
+  - RPC_GameOver
+  - RPC_PlayerFinishedTurn
+  - RPC_StartNextTurn
+  - RPC_SetTileHidden
+  - RPC_GiveMoneyToTeam
+  - RPC_GiveSurvivorMoney
+  - RPC_GiveSurvivorMoneyToPlayer
+  - RPC_ProcessSurvivorProblems
+  - RPC_StartNextRound
+  - RPC_AssignInitialTile
+  - RPC_ApplyMutantBuff
+  - RPC_ChangeVirusType
+  - RPC_HealMyTiles
+  - RPC_RemoveMutantBuff
+  - RPC_PlayerReady
+  - RPC_SetTileVaccineMark
+  - RPC_RequestPauseTime
+  - RPC_SetTimePaused
+  - RPC_BeginTurnTransition
+  - RPC_ShowMovePromptAfterMinigame
+  - RPC_StartMiniGame
+  - RPC_TransitionReady
+  - RPC_ResetAllBuffFlags
+  - RPC_SetTileHiddenUntilRound
+  - RPC_ApplySuperAntibody
+  - RPC_RequestEnemyStats_FromMaster
+  - RPC_ShowEnemyStats_ToRequester
+  - RPC_ShowNews
+  - RPC_VaccineResult_ToRequester
+  - RPC_ConsumeItem_ToRequester
+  - RPC_ItemFailed_ToRequester
+  - RPC_SetVirusTypeForTeam
+  - RPC_ClearBioWeapon
+  - RPC_ReportCurrentVirus
+  - RPC_SetTileDestroyed
+  - RPC_SetBioWeaponBuffLocal
+  - RPC_ApplyOngoingDeaths
+  - RPC_ReportPlayerStats
+  - RPC_SetTileHiddenUntilTurn
+  - RPC_AddDeathBonus
+  - RPC_OnVirusUsed
+  - RPC_SetDeathTotals
+  DisableAutoOpenWizard: 1
+  ShowSettings: 1
+  DevRegionSetOnce: 1

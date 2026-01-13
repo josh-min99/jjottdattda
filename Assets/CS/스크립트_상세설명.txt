@@ -1,0 +1,363 @@
+================================================================================
+바이러스 감염 게임 - 스크립트 상세 설명 및 공식
+================================================================================
+
+1. AdminManager.cs
+================================================================================
+역할: 조교/관리자가 게임 중 명령어를 입력하여 게임 상태를 조작
+
+주요 함수:
+- ToggleAdminPanel(): '/' 키로 관리자 패널 열기/닫기
+- OnSubmitCommand(): 명령어 입력 처리
+- ProcessCommand(string cmd): 명령어 파싱 및 실행
+
+명령어 종류:
+1) give money [금액]
+   - 플레이어에게 직접 돈 지급
+   
+2) give item [아이템명]
+   - 아이템명: bomb, bio, scissors, doc, anti
+   - 해당 아이템 획득
+
+3) set stat [전염률] [치사율] [확산력]
+   - 플레이어 스탯 직접 변경
+
+4) problem [팀] [문제수]
+   - 팀: 1 또는 2
+   - 문제수: 해결한 문제 개수
+   - 잔류인원 기반 돈 지급 트리거
+
+
+2. EventManager.cs
+================================================================================
+역할: 라운드별 랜덤 이벤트 발생 및 처리
+
+이벤트 타입:
+- Drone: 방역 드론 - 랜덤 2곳 무적 상태
+- Medicine: 의약품 - 랜덤 1곳 인구 +30
+- Disaster: 산불/폭우 - 랜덤 1곳 파괴
+- Media: 언론 보도 - 치사율 -15% (전역 디버프)
+- Supply: 보급품 - 랜덤 아이템 획득
+- Blackout: 정전 - 행동력 -1
+
+주요 함수:
+- TriggerRandomEvent(): 마스터 클라이언트가 라운드 시작 시 호출
+  → 랜덤 이벤트 선택 (1~7)
+  
+- RPC_SetEvent(int eventIndex): 모든 클라이언트에 이벤트 동기화
+  → 이벤트별 개별 처리 및 맵 전체 영향 처리
+  
+
+
+3. GameNetworkManager.cs
+================================================================================
+역할: 게임 핵심 로직 관리, Photon 네트워크 동기화
+
+타임라인 시스템:
+- 총 6라운드, 18턴 (라운드당 3턴)
+- 라운드당 30분 (1800초), 턴당 10분 (600초)
+- 최소 2턴 이상 진행되어야 승리 조건 체크
+
+주요 함수:
+
+1) DistributeInitialTiles()
+   - 게임 시작 시 각 플레이어에게 랜덤 타일 1개씩 할당
+   - ActorNumber 1 → 팀1, ActorNumber 2 → 팀2
+
+2) ProceedToNextTurn()
+   - 턴 진행 로직
+   - 인구 증가 (+10)
+   - 청정 지역 생성 (2~3개 랜덤)
+   - 랜덤 이벤트 발생
+   - 라운드 내 마지막 턴이면 ProceedToNextRound() 호출
+
+3) ProceedToNextRound()
+   - 라운드 시작 로직
+   - 누적 사망자 기반 돈 지급
+   - 첫 턴으로 초기화
+
+4) DistributeMoneyBasedOnCumulativeDeaths()
+   - 라운드 시작 시 누적 사망자 기반 돈 지급
+   - 공식: 돈 = 누적 사망자 수 × moneyPerCumulativeDeath
+
+5) RPC_ProcessSurvivorProblems(int team, int problemCount)
+   - 잔류인원 기반 돈 지급 처리
+   - 공식: 돈 = 문제 수 × 잔류인원 × moneyPerSurvivorProblem
+
+6) DetectClick()
+   - 마우스 클릭 감지
+   - 인접 여부 확인 후 행동력 소모
+   - 공격 모드: RPC_RequestAttack 호출
+   - 백신 모드: RPC_RequestVaccine 호출
+
+7) IsAdjacentToMyTerritory(HexTile target, int myTeam)
+   - 타겟 타일이 내 영토와 인접한지 확인
+   - 내 땅이 없으면 true (첫 공격 가능)
+   - 인접 타일 또는 다리로 연결된 타일 확인
+
+8) RPC_RequestAttack(...)
+   - 공격 요청 처리 (마스터 클라이언트만)
+   - 치사율 계산:
+     * 기본: fatalityRate
+     * 청정 지역: × 0.5
+     * 도박형 바이러스: 50% × 2.0, 50% × 0.5
+     * 생화학 무기 배율: × bioWeaponMultiplier
+     * 언론 보도 디버프: - globalFatalityDebuff
+   - 감염 성공률: VirusCalculator.TryInfect()
+   - 사망자 수: VirusCalculator.CalculateDeaths()
+   - 저항력: 상대 땅이면 50, 빈 땅이면 0
+
+9) RPC_RequestVaccine(...)
+   - 백신 요청 처리
+   - 성공률: vaccineRate (0~100)
+   - 성공 시 인구 +10
+
+10) RPC_SyncTileResult(...)
+    - 타일 상태 동기화 (모든 클라이언트)
+    - 누적 사망자 업데이트
+    - UI 업데이트
+    - 청정 지역 보너스 즉시 지급
+
+11) CheckVictoryCondition()
+    - 승리 조건 체크
+    - 최소 2턴 이상 진행되어야 체크
+    - 한 팀이 모든 타일 점령 시 즉시 승리
+    - 최대 라운드/턴 도달 시 점령 수 비교
+
+
+4. GamePlayer.cs
+================================================================================
+역할: 플레이어 데이터 및 행동력 관리
+
+행동력(AP) 시스템:
+- 계산 공식: maxActionPoints = Floor(infectionRate / 20)
+- 최소값: 1
+- 돌진형 보너스: +1
+- 턴 시작 시 초기화, 공격 시 소모
+
+바이러스 특수 능력:
+
+1) Rush (돌진형)
+   - 행동력 +1
+   - 사용 횟수: 2회
+
+2) Ambush (잠복형)
+   - 감염 성공 시 1라운드 동안 위치 비공개
+   - 사용 횟수: 2회
+
+3) Gamble (도박형)
+   - 치사율 50% × 2.0, 50% × 0.5
+   - 사용 횟수: 2회
+
+4) Mutant (변이형)
+   - 매 라운드 스탯 랜덤 재분배
+   - 총합 150 유지
+   - 사용 횟수: 2회
+
+주요 함수:
+
+1) OnTurnStart(int turnNumber)
+   - 턴 시작 시 호출
+   - 행동력 계산 및 초기화
+   - 바이러스별 특수 능력 적용
+   - 잠복 해제
+
+2) TryUseActionPoint()
+   - 행동력 사용 시도
+   - 성공 시 currentActionPoints--, UI 업데이트
+
+3) RandomizeStatsForMutant()
+   - 변이형 스탯 재분배
+   - infectionRate: 10~100 랜덤
+   - fatalityRate: 10~남은값 랜덤
+   - spreadPower: 150 - infectionRate - fatalityRate
+
+4) SetInitialStats(int inf, int fat, int spread)
+   - 초기 스탯 설정
+   - 초기 행동력 계산 및 지급
+
+
+5. GameUIManager.cs
+================================================================================
+역할: UI 표시 및 갱신
+
+주요 함수:
+- UpdateTimer(float timeRemaining): 타이머 표시 (MM:SS)
+- UpdateRoundInfo(...): 라운드/턴 정보 표시
+- UpdateScore(int team, int scoreChange, int deathChange): 사망자 수 업데이트
+- UpdateMoney(int money): 자금 표시
+- UpdateActionPoints(int current, int max): 행동력 표시
+
+
+6. HexGridHelper.cs
+================================================================================
+역할: 육각형 그리드 계산 유틸리티
+
+육각형 좌표 시스템:
+- 짝수 행: 오프셋 [1,0], [1,-1], [0,-1], [-1,0], [0,1], [1,1]
+- 홀수 행: 오프셋 [1,0], [0,-1], [-1,-1], [-1,0], [-1,1], [0,1]
+
+주요 함수:
+
+1) GetNeighbors(HexTile centerTile)
+   - 인접한 6개 타일 반환
+   - 짝수/홀수 행에 따라 다른 오프셋 사용
+
+2) GetTilesInRange(HexTile startTile, int range)
+   - BFS 알고리즘으로 범위 내 모든 타일 찾기
+   - 거리 0부터 range-1까지 탐색
+   - 백신 사거리 계산에 사용
+
+
+7. HexTile.cs
+================================================================================
+역할: 개별 타일 데이터 및 시각화
+
+타일 상태:
+- ownerTeam: 0(중립), 1(Red), 2(Blue), 3(AI)
+- isCleanZone: 청정 구역 (치사율 × 0.5, 보너스 돈)
+- isHidden: 잠복 상태 (상대에게 중립으로 보임)
+- isImmune: 무적 상태 (공격 불가)
+- isDestroyed: 파괴됨 (사용 불가)
+
+주요 함수:
+- UpdateVisuals(int team, int pop): 타일 시각적 업데이트
+  → 파괴 > 무적 > 잠복 > 정상 순서로 색상 결정
+
+
+8. ItemManager.cs
+================================================================================
+역할: 아이템 관리 및 사용
+
+아이템 종류:
+1) GeneScissors (유전자 가위)
+   - 효과: 타일 인구 -50
+   - 사용: 타일 클릭
+
+2) Bomb (폭탄)
+   - 효과: 타일 즉시 파괴 (인구 0, ownerTeam 0)
+   - 사용: 타일 클릭
+
+3) BioWeapon (생화학 무기)
+   - 효과: 타일에 bioWeaponMultiplier = 2.0 설정
+   - 이후 공격 시 치사율 × 2.0
+   - 사용: 타일 클릭
+
+4) SecretDoc (정부 기밀 문서)
+   - 효과: 상대 바이러스 스탯 확인
+   - 사용: 즉시 사용
+
+5) SuperAntibody (슈퍼 항체)
+   - 효과: 백신 성공률 +20%, 사거리 +1
+   - 사용: 즉시 사용
+
+
+9. MapGenerator.cs
+================================================================================
+역할: 이미지 기반 육각형 맵 생성
+
+맵 생성 과정:
+1) FindOptimalResolution(): 목표 타일 수(175)에 맞는 해상도 찾기
+2) GenerateMapInternal(): 실제 맵 생성
+   - 이미지 픽셀 색상 분석
+   - targetColor와 유사한 픽셀에 타일 배치
+   - FillHoles(): 구멍 채우기 (주변 3개 이상 타일 있으면 생성)
+3) GenerateFixedBridges(): 고정 다리 생성
+
+육각형 배치 공식:
+- xOffset = 0.88f
+- yOffset = 0.76f
+- 홀수 행: xPos += xOffset / 2f (오프셋 보정)
+
+
+10. ModeToggleUI.cs
+================================================================================
+역할: 공격/백신 모드 전환 UI
+
+- isAttackMode = true: 공격 모드 (바이러스 감염)
+- isAttackMode = false: 백신 모드 (회복)
+
+
+11. ShopManager.cs
+================================================================================
+역할: 상점 시스템
+
+구매 항목:
+1) 전염률 강화: +5% (가격: 100원, 구매 후 +50원)
+2) 치사율 강화: +5% (가격: 150원, 구매 후 +50원)
+3) 랜덤 아이템: 랜덤 아이템 1개 (가격: 300원)
+
+
+12. StatLobbyUI.cs
+================================================================================
+역할: 게임 시작 전 스탯 분배
+
+- 총 포인트: 150
+- 전염률, 치사율, 확산력 각각 최소 10 이상
+- 포인트가 정확히 0이어야 게임 시작 가능
+
+
+13. VirusCalculator.cs
+================================================================================
+역할: 감염 및 사망자 계산
+
+주요 함수:
+
+1) TryInfect(float myInfectionRate, float targetResistance)
+   - 감염 성공률 계산
+   
+   빈 땅 (targetResistance <= 0):
+   → successChance = myInfectionRate (절대 확률)
+   
+   상대 땅 (targetResistance > 0):
+   → successChance = (myInfectionRate / (myInfectionRate + targetResistance)) × 100
+   → 예: 나 80, 상대 50 → 80/(80+50) × 100 = 61.5%
+   
+   최종: Random(0~100) <= successChance
+
+2) CalculateDeaths(int currentPopulation, float fatalityRate)
+   - 사망자 수 계산
+   - 공식: Round(currentPopulation × (fatalityRate / 100))
+   - 예: 인구 100, 치사율 50% → 50명 사망
+
+
+14. VirusSelectUI.cs
+================================================================================
+역할: 바이러스 선택 UI
+
+- 4종 바이러스 선택 버튼
+- 각 바이러스 사용 횟수 표시 (0/2, 1/2, 2/2)
+- 2회 모두 사용한 바이러스는 버튼 비활성화
+
+
+================================================================================
+핵심 공식 정리
+================================================================================
+
+1. 행동력(AP) 계산
+   maxActionPoints = Floor(infectionRate / 20)
+   최소값: 1
+   돌진형 보너스: +1
+
+2. 감염 성공률
+   빈 땅: successChance = infectionRate (%)
+   상대 땅: successChance = (infectionRate / (infectionRate + 50)) × 100 (%)
+
+3. 사망자 수
+   deaths = Round(population × (fatalityRate / 100))
+   
+   최종 치사율 계산:
+   finalFatality = fatalityRate
+   if (청정 지역) finalFatality × 0.5
+   if (도박형) finalFatality × 2.0 또는 × 0.5 (각 50%)
+   finalFatality × bioWeaponMultiplier
+   finalFatality - globalFatalityDebuff
+   if (finalFatality < 0) finalFatality = 0
+
+4. 돈 지급
+   - 누적 사망자 기반: 돈 = 누적 사망자 × moneyPerCumulativeDeath (라운드 시작 시)
+   - 잔류인원 기반: 돈 = 문제 수 × 잔류인원 × moneyPerSurvivorProblem
+   - 청정 지역 보너스: moneyBonusCleanZone (즉시 지급)
+
+5. 인구 증가
+   매 턴: population += 10 (소유 타일만)
