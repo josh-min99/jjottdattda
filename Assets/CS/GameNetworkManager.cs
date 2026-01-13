@@ -147,6 +147,8 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
         public float resistance;
         public float timestamp; // 요청 시간
         public int attackId;
+        public int originalPopulation; // 공격 시점의 타일 초기 인구
+        public int originalOwnerTeam; // 공격 시점의 타일 소유 팀
     }
 
     [System.Serializable]
@@ -1988,7 +1990,7 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
             return;
         }
 
-        // 공격 요청을 큐에 추가
+        // 공격 요청을 큐에 추가 (타일의 초기 상태 저장)
         AttackRequest request = new AttackRequest
         {
             tileID = tileID,
@@ -1998,14 +2000,15 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
             virusTypeIndex = virusTypeIndex,
             resistance = resistance,
             timestamp = Time.time,
-            attackId = attackId
+            attackId = attackId,
+            originalPopulation = targetTile.population, // 공격 시점의 초기 인구
+            originalOwnerTeam = targetTile.ownerTeam    // 공격 시점의 소유 팀
         };
 
-        // 요청자에게는 항상 즉시 결과를 보여줌
-        ProcessSingleAttack(request, targetTile);
-        preProcessedAttackTiles.Add(tileID);
+        // 요청자에게만 즉시 결과를 보여줌 (임시 UI 업데이트)
+        ProcessSingleAttack_Immediate(request, targetTile);
 
-        // 해당 타일의 공격 리스트에 추가
+        // 해당 타일의 공격 리스트에 추가 (턴 종료 시 확정 처리)
         if (!pendingAttacks.ContainsKey(tileID))
         {
             pendingAttacks[tileID] = new List<AttackRequest>();
@@ -2018,6 +2021,8 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
         if (!PhotonNetwork.IsMasterClient) return;
         if (pendingAttacks.Count == 0) return;
 
+        Debug.Log($"[턴 종료] {pendingAttacks.Count}개 타일에 대한 공격 확정 처리 중...");
+
         foreach (var kvp in pendingAttacks)
         {
             if (kvp.Value == null || kvp.Value.Count == 0) continue;
@@ -2025,22 +2030,201 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
             int tileID = kvp.Key;
             int attackCount = kvp.Value.Count;
 
-            if (attackCount == 1 && preProcessedAttackTiles.Contains(tileID))
-            {
-                continue;
-            }
+            Debug.Log($"[턴 종료] 타일 {tileID}: {attackCount}개 공격 확정");
 
+            // 동시 도착 여부 판정 및 최종 결과 확정
             if (attackCount > 1)
             {
+                // 동시 도착: 확률 계산으로 승자 결정 후 모두에게 브로드캐스트
                 pendingRevealResults.RemoveAll(r => r.tileID == tileID);
                 pendingRevealTileIDs.Remove(tileID);
             }
 
-            ProcessSimultaneousAttacks(tileID, kvp.Value);
+            ProcessSimultaneousAttacks_Final(tileID, kvp.Value);
         }
 
         pendingAttacks.Clear();
-        preProcessedAttackTiles.Clear();
+    }
+
+    // 턴 종료 시 최종 확정 처리 (모두에게 브로드캐스트)
+    void ProcessSimultaneousAttacks_Final(int tileID, List<AttackRequest> attacks)
+    {
+        if (!MapGenerator.Instance.allTiles.ContainsKey(tileID)) return;
+        HexTile targetTile = MapGenerator.Instance.allTiles[tileID];
+        if (targetTile.isImmune) return;
+        float cleanZoneInfectionMultiplier = targetTile.isCleanZone ? 0.5f : 1f;
+
+        // 공격이 2개 이상이면 동시 도착 이벤트로 기록
+        if (attacks.Count >= 2)
+        {
+            simultaneousAttackHappenedThisTurn = true;
+            simultaneousAttackTilesThisTurn.Add(tileID);
+            Debug.Log($"[최종 확정] 타일 {tileID} 동시 도착 {attacks.Count}개 공격 - 확률 판정 시작");
+        }
+
+        // 단일 공격: 재계산 후 모두에게 브로드캐스트
+        if (attacks.Count == 1)
+        {
+            ProcessSingleAttack_Final(attacks[0], targetTile);
+            return;
+        }
+
+        // 2개 공격: 확률 계산
+        if (attacks.Count == 2)
+        {
+            float a = Mathf.Clamp01((attacks[0].infectionRate * cleanZoneInfectionMultiplier) / 100f);
+            float b = Mathf.Clamp01((attacks[1].infectionRate * cleanZoneInfectionMultiplier) / 100f);
+            float denom = 1f - (a * b);
+
+            float probA, probB, probFail;
+
+            if (denom <= 0f)
+            {
+                float sum = a + b;
+                if (sum <= 0f)
+                {
+                    probA = 0f;
+                    probB = 0f;
+                    probFail = 1f;
+                }
+                else
+                {
+                    probA = a / sum;
+                    probB = b / sum;
+                    probFail = 0f;
+                }
+            }
+            else
+            {
+                probA = (a * (1f - b)) / denom;
+                probB = (b * (1f - a)) / denom;
+                probFail = ((1f - a) * (1f - b)) / denom;
+            }
+
+            Debug.Log($"[최종 확정] 타일 {tileID}: A={a:0.##}, B={b:0.##}, A확률={probA:0.###}, B확률={probB:0.###}, 실패={probFail:0.###}");
+
+            float r = Random.Range(0f, 1f);
+            if (r < probA)
+            {
+                ProcessSingleAttack_Final(attacks[0], targetTile);
+                Debug.Log($"[최종 확정] Actor {attacks[0].attackerActorNum} 승리!");
+            }
+            else if (r < probA + probB)
+            {
+                ProcessSingleAttack_Final(attacks[1], targetTile);
+                Debug.Log($"[최종 확정] Actor {attacks[1].attackerActorNum} 승리!");
+            }
+            else
+            {
+                // 둘 다 실패
+                foreach (var attack in attacks)
+                {
+                    photonView.RPC("RPC_SyncTileResult", RpcTarget.All,
+                        tileID, targetTile.ownerTeam, targetTile.population, false, attack.attackerActorNum, 0, false, 0);
+                }
+                Debug.Log($"[최종 확정] 둘 다 실패!");
+            }
+            return;
+        }
+
+        // 3개 이상: 가중 확률
+        List<float> rates = attacks.Select(a => Mathf.Max(0f, a.infectionRate * cleanZoneInfectionMultiplier)).ToList();
+        float totalRate = rates.Sum();
+        float failureRate = Mathf.Max(0f, 100f - totalRate);
+        float total = totalRate + failureRate;
+
+        Debug.Log($"[최종 확정] 타일 {tileID}: {attacks.Count}개 공격, 실패율: {failureRate:0.##}%");
+
+        float randomValue = Random.Range(0f, total);
+        float cumulative = 0f;
+        int successfulAttackIndex = -1;
+
+        for (int i = 0; i < rates.Count; i++)
+        {
+            cumulative += rates[i];
+            if (randomValue <= cumulative)
+            {
+                successfulAttackIndex = i;
+                break;
+            }
+        }
+
+        if (successfulAttackIndex >= 0)
+        {
+            ProcessSingleAttack_Final(attacks[successfulAttackIndex], targetTile);
+            Debug.Log($"[최종 확정] Actor {attacks[successfulAttackIndex].attackerActorNum} 승리!");
+        }
+        else
+        {
+            // 모두 실패
+            foreach (var attack in attacks)
+            {
+                photonView.RPC("RPC_SyncTileResult", RpcTarget.All,
+                    tileID, targetTile.ownerTeam, targetTile.population, false, attack.attackerActorNum, 0, false, 0);
+            }
+            Debug.Log($"[최종 확정] 모두 실패!");
+        }
+    }
+
+    // 단일 공격 최종 확정 (모두에게 브로드캐스트)
+    void ProcessSingleAttack_Final(AttackRequest attack, HexTile targetTile)
+    {
+        int attackerTeam = (attack.attackerActorNum == 1) ? 1 : 2;
+        GamePlayer.VirusType vType = (GamePlayer.VirusType)attack.virusTypeIndex;
+
+        // 최종 치사율 계산 (기존 로직과 동일)
+        float finalFatality = attack.fatalityRate;
+        if (PhotonNetwork.IsMasterClient &&
+            bioWeaponBuffUntilTurnByActor.TryGetValue(attack.attackerActorNum, out int untilTurn) &&
+            untilTurn >= currentTurn)
+        {
+            finalFatality += BIO_WEAPON_ADD;
+        }
+
+        float finalInfectionRate = attack.infectionRate;
+        if (targetTile.isCleanZone) finalInfectionRate *= 0.5f;
+
+        GamePlayer attackerPlayer = GetPlayerByActorNum(attack.attackerActorNum);
+        if (attackerPlayer != null && attackerPlayer.hasMutantBuff)
+        {
+            finalFatality *= 1.2f;
+        }
+
+        if (EventManager.Instance != null)
+            finalFatality -= EventManager.Instance.globalFatalityDebuff;
+        if (finalFatality < 0) finalFatality = 0;
+
+        // 바이러스 사용 기록
+        if (vType != GamePlayer.VirusType.None)
+            photonView.RPC(nameof(RPC_OnVirusUsed), RpcTarget.All, attack.attackerActorNum, attack.attackId);
+
+        // 사망자 및 인구 계산 (공격 시점의 초기 인구 사용)
+        int deaths = VirusCalculator.Instance.CalculateDeaths(attack.originalPopulation, finalFatality);
+        int newPop = attack.originalPopulation - deaths;
+        if (newPop < 0) newPop = 0;
+
+        Debug.Log($"[최종 사망자 계산] 타일 {attack.tileID} - 초기인구:{attack.originalPopulation}, 치사율:{finalFatality:F1}%, 사망:{deaths}, 남은인구:{newPop}");
+
+        int immediateMoney = 0;
+        if (targetTile.isCleanZone) immediateMoney = moneyBonusCleanZone;
+
+        bool shouldHide = (vType == GamePlayer.VirusType.Ambush);
+        if (shouldHide)
+        {
+            photonView.RPC(nameof(RPC_SetTileHidden), RpcTarget.All, attack.tileID, true);
+            int hideUntilTurn = currentTurn + 2;
+            photonView.RPC(nameof(RPC_SetTileHiddenUntilTurn), RpcTarget.All, attack.tileID, hideUntilTurn);
+        }
+
+        // 타일 상태 업데이트
+        newlyInfectedTileIdsThisTurn.Add(attack.tileID);
+        pendingVaccineReverts.Remove(attack.tileID);
+
+        // 모두에게 최종 결과 브로드캐스트
+        photonView.RPC("RPC_SyncTileResult", RpcTarget.All,
+            attack.tileID, attackerTeam, newPop, true, attack.attackerActorNum, immediateMoney, shouldHide, deaths);
+
+        Debug.Log($"[최종 확정] 타일 {attack.tileID} → 팀{attackerTeam}, 인구{newPop}, 사망{deaths} (모두에게 브로드캐스트)");
     }
 
     // 동시 도착 공격 처리 함수 (기획서 확률 계산 로직 적용)
@@ -2223,6 +2407,75 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
 
         photonView.RPC("RPC_SyncTileResult", RpcTarget.All,
             attack.tileID, attackerTeam, newPop, true, attack.attackerActorNum, immediateMoney, shouldHide, deaths);
+    }
+
+    // 즉시 공격 처리 함수 (본인에게만 임시 결과 전송, 저장 안 함)
+    void ProcessSingleAttack_Immediate(AttackRequest attack, HexTile targetTile)
+    {
+        int attackerTeam = (attack.attackerActorNum == 1) ? 1 : 2;
+        GamePlayer.VirusType vType = (GamePlayer.VirusType)attack.virusTypeIndex;
+
+        // 최종 치사율 계산
+        float finalFatality = attack.fatalityRate;
+        if (PhotonNetwork.IsMasterClient &&
+            bioWeaponBuffUntilTurnByActor.TryGetValue(attack.attackerActorNum, out int untilTurn) &&
+            untilTurn >= currentTurn)
+        {
+            finalFatality += BIO_WEAPON_ADD;
+        }
+
+        float finalInfectionRate = attack.infectionRate;
+        if (targetTile.isCleanZone) finalInfectionRate *= 0.5f;
+
+        // 돌연변이 버프: 치사율 +20% 증가
+        GamePlayer attackerPlayer = GetPlayerByActorNum(attack.attackerActorNum);
+        if (attackerPlayer != null && attackerPlayer.hasMutantBuff)
+        {
+            finalFatality *= 1.2f;
+        }
+
+        // 언론 보도 디버프 적용
+        if (EventManager.Instance != null)
+            finalFatality -= EventManager.Instance.globalFatalityDebuff;
+        if (finalFatality < 0) finalFatality = 0;
+
+        // 감염 성공 여부 판단
+        bool isSuccess = VirusCalculator.Instance.TryInfect(finalInfectionRate, attack.resistance);
+
+        if (isSuccess)
+        {
+            // 사망자 수 계산 (공격 시점의 초기 인구 사용)
+            int deaths = VirusCalculator.Instance.CalculateDeaths(attack.originalPopulation, finalFatality);
+            int newPop = attack.originalPopulation - deaths;
+            if (newPop < 0) newPop = 0;
+
+            int immediateMoney = 0;
+            if (targetTile.isCleanZone) immediateMoney = moneyBonusCleanZone;
+
+            bool shouldHide = (vType == GamePlayer.VirusType.Ambush);
+
+            // 본인에게만 즉시 결과 전송 (pendingRevealResults에 저장하지 않음)
+            Player p = PhotonNetwork.CurrentRoom.GetPlayer(attack.attackerActorNum);
+            if (p != null)
+            {
+                photonView.RPC("RPC_SyncTileResult", p,
+                    attack.tileID, attackerTeam, newPop, true, attack.attackerActorNum, immediateMoney, shouldHide, deaths);
+            }
+
+            Debug.Log($"[즉시 반영] Actor {attack.attackerActorNum}에게만 타일 {attack.tileID} 임시 결과 전송");
+        }
+        else
+        {
+            // 실패 시에도 본인에게만 알림 (원래 타일 상태 유지)
+            Player p = PhotonNetwork.CurrentRoom.GetPlayer(attack.attackerActorNum);
+            if (p != null)
+            {
+                photonView.RPC("RPC_SyncTileResult", p,
+                    attack.tileID, attack.originalOwnerTeam, attack.originalPopulation, false, attack.attackerActorNum, 0, false, 0);
+            }
+
+            Debug.Log($"[즉시 반영] Actor {attack.attackerActorNum}에게 타일 {attack.tileID} 공격 실패 알림");
+        }
     }
 
     // 단일 공격 처리 함수 (기존 로직)
@@ -2498,14 +2751,21 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
         {
             HexTile tile = MapGenerator.Instance.allTiles[tileID];
 
-            // 이미 이번 턴에 이 결과를 적용했다면(즉시 적용 받은 경우) 중복 적용 방지
+            // 중복 적용 방지: 본인이 같은 턴에 이미 같은 결과를 받았으면 스킵
+            // 단, 결과가 다르면 턴 종료 시 확정된 최종 결과로 덮어쓰기
             if (PhotonNetwork.LocalPlayer != null &&
                 PhotonNetwork.LocalPlayer.ActorNumber == actorNum &&
                 tile.lastAppliedTurn == currentTurn)
             {
-                // 같은 결과면 중복 적용만 스킵, 결과가 다르면 덮어쓰기 허용
                 if (tile.ownerTeam == newTeam && tile.population == newPop)
+                {
+                    Debug.Log($"[중복 방지] 타일 {tileID} - 이미 적용된 동일 결과 무시");
                     return;
+                }
+                else
+                {
+                    Debug.Log($"[최종 갱신] 타일 {tileID} - 임시 결과 → 확정 결과로 갱신 (팀:{tile.ownerTeam}→{newTeam}, 인구:{tile.population}→{newPop})");
+                }
             }
 
             if (isSuccess)
