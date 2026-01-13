@@ -297,6 +297,60 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
     public override void OnPlayerLeftRoom(Player otherPlayer)
     {
         Debug.LogWarning($"👋 플레이어 퇴장: {otherPlayer.NickName} (ActorNumber: {otherPlayer.ActorNumber})");
+
+        // 마스터 클라이언트만 처리
+        if (PhotonNetwork.IsMasterClient)
+        {
+            // 해당 플레이어의 대기 중인 공격을 즉시 확정 처리
+            if (pendingAttacks.Count > 0)
+            {
+                Debug.Log($"[긴급 처리] 퇴장한 플레이어 {otherPlayer.ActorNumber}의 대기 중인 공격 즉시 확정");
+
+                // 퇴장한 플레이어의 공격만 필터링하여 처리
+                var attacksToProcess = new Dictionary<int, List<AttackRequest>>();
+                foreach (var kvp in pendingAttacks)
+                {
+                    var playerAttacks = kvp.Value.Where(a => a.attackerActorNum == otherPlayer.ActorNumber).ToList();
+                    if (playerAttacks.Count > 0)
+                    {
+                        attacksToProcess[kvp.Key] = playerAttacks;
+                    }
+                }
+
+                // 퇴장한 플레이어의 공격을 즉시 확정 처리
+                foreach (var kvp in attacksToProcess)
+                {
+                    int tileID = kvp.Key;
+                    List<AttackRequest> attacks = kvp.Value;
+
+                    Debug.Log($"[긴급 처리] 타일 {tileID}: {attacks.Count}개 공격 확정");
+
+                    if (!MapGenerator.Instance.allTiles.ContainsKey(tileID)) continue;
+                    HexTile targetTile = MapGenerator.Instance.allTiles[tileID];
+
+                    if (attacks.Count == 1)
+                    {
+                        ProcessSingleAttack_Final(attacks[0], targetTile);
+                    }
+                    else
+                    {
+                        ProcessSimultaneousAttacks_Final(tileID, attacks);
+                    }
+
+                    // pendingAttacks에서 제거
+                    foreach (var attack in attacks)
+                    {
+                        pendingAttacks[tileID].Remove(attack);
+                    }
+
+                    // 리스트가 비었으면 키 자체를 제거
+                    if (pendingAttacks[tileID].Count == 0)
+                    {
+                        pendingAttacks.Remove(tileID);
+                    }
+                }
+            }
+        }
     }
 
     // 방 입장 성공 시 호출
@@ -2820,6 +2874,19 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
             else
             {
                 Debug.Log($"[RPC_SyncTileResult] 타일 {tileID} 공격 실패");
+
+                // 공격 실패 시 타일을 원래 상태로 복구
+                // (즉시 반영 단계에서 변경된 것을 되돌림)
+                if (PhotonNetwork.LocalPlayer != null &&
+                    PhotonNetwork.LocalPlayer.ActorNumber == actorNum)
+                {
+                    // 공격자 본인의 화면에서만 복구
+                    Debug.Log($"[공격 실패 복구] 타일 {tileID}을 원래 상태로 되돌림 - 팀: {tile.ownerTeam} -> {newTeam}, 인구: {tile.population} -> {newPop}");
+
+                    tile.ownerTeam = newTeam;
+                    tile.population = newPop;
+                    tile.UpdateVisuals(newTeam, newPop);
+                }
             }
         }
         else
