@@ -20,6 +20,10 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
     private int readyPlayers = 0;
     private bool gameStarted = false;
 
+    [Header("Room Code Settings")]
+    private string roomCode = ""; // 방 코드 (4자리 숫자 등)
+    private bool waitingForRoomCode = true; // 방 코드 입력 대기 중
+
     [Header("Game Rule Settings")]
     public int cleanZoneCountPerRound = 3; // (참고용) 실제 생성은 2~3개 랜덤
     public int moneyPerKill = 10;          // 킬 당 기본 보상 (현재 로직에서는 미사용 가능성 있음)
@@ -171,9 +175,76 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
 
     void Start()
     {
-        // 포톤 네트워크 설정에 따라 연결 시도
-        PhotonNetwork.ConnectUsingSettings();
         if (panelVictory != null) panelVictory.SetActive(false);
+
+        // 방 코드 입력 대기 (UI에서 ConnectWithRoomCode()를 호출할 때까지 대기)
+        Debug.Log("⏳ 방 코드 입력 대기 중... (UI에서 입력해주세요)");
+    }
+
+    // UI에서 호출: 방 코드를 입력받아서 연결 시작
+    public void ConnectWithRoomCode(string code)
+    {
+        if (string.IsNullOrEmpty(code) || code.Length < 4)
+        {
+            Debug.LogError("❌ 방 코드는 최소 4자리여야 합니다!");
+            return;
+        }
+
+        roomCode = code.ToUpper(); // 대문자로 통일
+        waitingForRoomCode = false;
+
+        Debug.Log($"🔌 방 코드 '{roomCode}'로 Photon 서버 연결 시도 중...");
+        Debug.Log($"📍 설정: Protocol=WebSocket, Region=kr, AppId={PhotonNetwork.PhotonServerSettings.AppSettings.AppIdRealtime.Substring(0, 8)}...");
+
+        PhotonNetwork.ConnectUsingSettings();
+
+        // 30초 연결 타임아웃 체크
+        Invoke(nameof(CheckConnectionTimeout), 30f);
+    }
+
+    // 연결 타임아웃 체크
+    void CheckConnectionTimeout()
+    {
+        if (!PhotonNetwork.IsConnected && !PhotonNetwork.IsConnectedAndReady)
+        {
+            Debug.LogError("⏱️ 연결 타임아웃! 30초 동안 연결되지 않음");
+            Debug.LogError($"현재 상태: {PhotonNetwork.NetworkClientState}");
+            Debug.LogError("방화벽/네트워크 설정을 확인해주세요.");
+
+            // 재시도
+            RetryConnection();
+        }
+    }
+
+    // 연결 끊김 처리
+    public override void OnDisconnected(DisconnectCause cause)
+    {
+        Debug.LogError($"❌ Photon 연결 끊김: {cause}");
+
+        // 게임 중이 아니면 자동 재연결 시도
+        if (!gameStarted)
+        {
+            Debug.Log("🔄 5초 후 재연결 시도...");
+            Invoke(nameof(RetryConnection), 5f);
+        }
+        else
+        {
+            Debug.LogWarning("⚠️ 게임 중 연결 끊김 - 수동 재연결 필요");
+            // TODO: UI에 "연결이 끊겼습니다" 메시지 표시
+        }
+    }
+
+    // 재연결 시도
+    void RetryConnection()
+    {
+        if (PhotonNetwork.IsConnected)
+        {
+            Debug.Log("✅ 이미 연결됨");
+            return;
+        }
+
+        Debug.Log("🔄 재연결 중...");
+        PhotonNetwork.ConnectUsingSettings();
     }
 
     bool CanPlayerActNow()
@@ -184,19 +255,63 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
     // 마스터 서버 연결 성공 시 호출
     public override void OnConnectedToMaster()
     {
-        PhotonNetwork.JoinRandomRoom();
+        Debug.Log($"✅ 마스터 서버 연결 성공! (리전: {PhotonNetwork.CloudRegion}, Ping: {PhotonNetwork.GetPing()}ms)");
+        Debug.Log($"🔍 방 코드 '{roomCode}'로 방 찾기/생성 시도 중...");
+
+        // 타임아웃 체크 취소
+        CancelInvoke(nameof(CheckConnectionTimeout));
+
+        // 방 코드로 방 입장 시도 (없으면 자동으로 생성됨)
+        RoomOptions roomOptions = new RoomOptions { MaxPlayers = 2 };
+        PhotonNetwork.JoinOrCreateRoom(roomCode, roomOptions, null);
     }
 
     // 방 입장 실패(방이 없음) 시 호출 -> 방 생성
     public override void OnJoinRandomFailed(short returnCode, string message)
     {
+        Debug.Log($"⚠️ 방 찾기 실패 (코드: {returnCode}) - 새 방 생성 중...");
         PhotonNetwork.CreateRoom(null, new RoomOptions { MaxPlayers = 2 });
+    }
+
+    // 방 생성 성공 시 호출
+    public override void OnCreatedRoom()
+    {
+        Debug.Log("✅ 방 생성 완료! 다른 플레이어 대기 중...");
+    }
+
+    // 방 생성 실패 시 호출
+    public override void OnCreateRoomFailed(short returnCode, string message)
+    {
+        Debug.LogError($"❌ 방 생성 실패: {message} (코드: {returnCode})");
+    }
+
+    // 다른 플레이어가 방에 입장했을 때
+    public override void OnPlayerEnteredRoom(Player newPlayer)
+    {
+        Debug.Log($"👤 플레이어 입장: {newPlayer.NickName} (ActorNumber: {newPlayer.ActorNumber})");
+    }
+
+    // 다른 플레이어가 방을 떠났을 때
+    public override void OnPlayerLeftRoom(Player otherPlayer)
+    {
+        Debug.LogWarning($"👋 플레이어 퇴장: {otherPlayer.NickName} (ActorNumber: {otherPlayer.ActorNumber})");
     }
 
     // 방 입장 성공 시 호출
     public override void OnJoinedRoom()
     {
-        Debug.Log("방 입장 완료.");
+        Debug.Log($"✅ 방 입장 완료! (방 코드: {roomCode}, 플레이어 수: {PhotonNetwork.CurrentRoom.PlayerCount}/2, 역할: {(PhotonNetwork.IsMasterClient ? "마스터" : "게스트")})");
+
+        // 방 이름이 roomCode와 일치하는지 확인
+        if (PhotonNetwork.CurrentRoom.Name == roomCode)
+        {
+            Debug.Log($"🎯 올바른 방에 입장했습니다!");
+        }
+        else
+        {
+            Debug.LogWarning($"⚠️ 예상과 다른 방에 입장했습니다. (예상: {roomCode}, 실제: {PhotonNetwork.CurrentRoom.Name})");
+        }
+
         // 네트워크상에 플레이어 오브젝트 생성
         if (playerPrefab != null)
         {
