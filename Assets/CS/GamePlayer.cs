@@ -498,6 +498,23 @@ public class GamePlayer : MonoBehaviourPunCallbacks
             GameUIManager.Instance.UpdateActionPoints(currentActionPoints, maxActionPoints);
     }
 
+    public void RecalculateActionPointsPreserveUsed()
+    {
+        int used = maxActionPoints - currentActionPoints;
+        if (used < 0) used = 0;
+
+        maxActionPoints = Mathf.FloorToInt(spreadPower / 20f);
+        if (maxActionPoints < 1) maxActionPoints = 1;
+
+        if (currentVirus == VirusType.Rush)
+            maxActionPoints += 1;
+
+        currentActionPoints = Mathf.Max(0, maxActionPoints - used);
+        if (GameUIManager.Instance != null)
+            GameUIManager.Instance.UpdateActionPoints(currentActionPoints, maxActionPoints);
+    }
+
+
     public void RandomizeStatsForMutant()
     {
         int inf = Random.Range(0, 101);
@@ -537,7 +554,7 @@ public class GamePlayer : MonoBehaviourPunCallbacks
         prevBlackoutFatalityRate = fatalityRate;
         revertBlackoutStatsNextTurn = true;
 
-        infectionRate = Mathf.Max(0f, infectionRate + infectionBonus);
+        infectionRate = Mathf.Clamp(infectionRate + infectionBonus, 0f, 100f);
         fatalityRate = Mathf.Max(0f, fatalityRate * fatalityMultiplier);
         hasBlackoutDebuff = true;
 

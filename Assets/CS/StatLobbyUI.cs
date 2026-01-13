@@ -98,6 +98,9 @@ public class StatLobbyUI : MonoBehaviour
             var gnm = GameNetworkManager.Instance;
             if (gnm != null && gnm.bioWeaponBuffActiveLocal)
                 displayFatality *= 1.1f;
+            if (EventManager.Instance != null)
+                displayFatality -= EventManager.Instance.globalFatalityDebuff;
+            if (displayFatality < 0f) displayFatality = 0f;
 
             fatalityText.text = $"치사율 : {displayFatality:0.0}%";
 
@@ -209,6 +212,9 @@ public class StatLobbyUI : MonoBehaviour
         var gnm = GameNetworkManager.Instance;
         if (gnm != null && gnm.bioWeaponBuffActiveLocal)
             displayFatality *= 1.1f;
+        if (EventManager.Instance != null)
+            displayFatality -= EventManager.Instance.globalFatalityDebuff;
+        if (displayFatality < 0f) displayFatality = 0f;
             fatalityText.text = $"치사율 : {displayFatality:0.0}%";
 
             spreadText.text = $"전염력 : {GamePlayer.LocalPlayer.spreadPower}%";

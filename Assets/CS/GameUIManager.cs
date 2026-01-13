@@ -25,7 +25,7 @@ public class GameUIManager : MonoBehaviour
     public TextMeshProUGUI textActionPoints;
 
     public TextMeshProUGUI txtNews;
-    public float newsDuration = 2.0f;
+    public float newsDuration = 4.0f;
     Coroutine newsCo;
 
     private int deathsA = 0;
@@ -130,6 +130,13 @@ public class GameUIManager : MonoBehaviour
     public void ShowNews(string msg)
     {
         if (txtNews == null) return;
+
+        RectTransform rect = txtNews.rectTransform;
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = Vector2.zero;
+        txtNews.alignment = TextAlignmentOptions.Center;
 
         if (newsCo != null) StopCoroutine(newsCo);
         newsCo = StartCoroutine(CoShowNews(msg));

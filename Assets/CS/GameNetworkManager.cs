@@ -2716,8 +2716,7 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
         if (simultaneousAttackHappenedThisTurn)
         {
             // 타일도 보여주고 싶으면 메시지에 포함 가능
-            string msg = "동시 도착!";
-            // 예: msg = $"동시 도착! (타일: {string.Join(", ", simultaneousAttackTilesThisTurn)})";
+            string msg = $"동시 도착! (타일: {string.Join(", ", simultaneousAttackTilesThisTurn)})";
 
             photonView.RPC(nameof(RPC_ShowNews), RpcTarget.All, msg);
 
