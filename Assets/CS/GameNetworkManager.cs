@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 
 public class GameNetworkManager : MonoBehaviourPunCallbacks
 {
@@ -1497,6 +1498,9 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
     // 마우스 클릭 시 로직 (공격, 아이템 사용, 백신 등)
     void DetectClick()
     {
+        if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
+            return;
+
         Vector2 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
         RaycastHit2D hit = Physics2D.Raycast(mousePos, Vector2.zero);
 
@@ -2001,7 +2005,7 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
             attackId = attackId
         };
 
-        // 요청자에게는 항상 즉시 결과를 보여줌
+        // 요청자에게는 즉시 결과를 보여줌
         ProcessSingleAttack(request, targetTile);
         preProcessedAttackTiles.Add(tileID);
 

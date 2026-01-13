@@ -49,6 +49,7 @@
   <ItemGroup>
     <Compile Include="Assets\Photon\PhotonChat\Demos\Demo Chat\Code\NamePickNewGui.cs" />
     <Compile Include="Assets\CS\VirusCalculator.cs" />
+    <Compile Include="Assets\CS\RoomCodeUI.cs" />
     <Compile Include="Assets\CS\ItemManager.cs" />
     <Compile Include="Assets\CS\MinigameSystem.cs" />
     <Compile Include="Assets\Photon\PhotonChat\Demos\Demo Chat\Code\Utilities\TextToggleIsOnTransition.cs" />
