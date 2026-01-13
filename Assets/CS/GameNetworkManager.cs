@@ -103,6 +103,7 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
     private HashSet<int> pendingDestroyedTileIDs = new HashSet<int>();
     private HashSet<int> newlyInfectedTileIdsThisTurn = new HashSet<int>();
     private HashSet<long> processedAttackKeysThisTurn = new HashSet<long>();
+    private bool virusConsumedThisTurnLocal = false;
 
     [Header("UI References")]
     public TextMeshProUGUI txtTurnInfo;     // 상단 라운드/턴 정보 텍스트
@@ -387,6 +388,26 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
         }
 
         // 2) 턴 종료 때 전체 공개할 목록에 저장
+        pendingRevealResults.Add(new PendingRevealResult
+        {
+            tileID = tileID,
+            newTeam = newTeam,
+            newPop = newPop,
+            isSuccess = isSuccess,
+            actorNum = actorNum,
+            earnedMoney = earnedMoney,
+            shouldHide = shouldHide,
+            deathCount = deathCount
+        });
+
+        pendingRevealTileIDs.Add(tileID);
+    }
+
+    void QueueRevealOnly(int actorNum,
+    int tileID, int newTeam, int newPop, bool isSuccess, int earnedMoney, bool shouldHide, int deathCount)
+    {
+        if (!PhotonNetwork.IsMasterClient) return;
+
         pendingRevealResults.Add(new PendingRevealResult
         {
             tileID = tileID,
@@ -1071,7 +1092,10 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
         }
 
         if (PhotonNetwork.LocalPlayer != null)
+        {
             consumedAttackIdsLocal.Clear();
+            virusConsumedThisTurnLocal = false;
+        }
 
         if (GamePlayer.LocalPlayer != null)
             GamePlayer.LocalPlayer.OnTurnStart(newTurn);
@@ -1563,24 +1587,22 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
         {
             case ItemManager.ItemType.Bomb:
                 {
-                    // 내 땅엔 못 씀(원하면 중립도 금지)
-                    if (tile.ownerTeam == attackerTeam)
-                    {
-                        photonView.RPC("RPC_ItemFailed_ToRequester", RpcTarget.All, actorNum, "내 땅엔 폭탄 불가");
-                        return;
-                    }
+                    // 행동자는 즉시 파괴(검은색), 상대는 턴 종료 시 공개
+                    int deaths = tile.population;
+                    QueueRevealOnly(
+                        actorNum,
+                        tileID, 0, 0, true, 0, false, deaths);
+                    pendingDestroyedTileIDs.Add(tileID);
 
-                      // 결과는 행동자에게만 즉시 적용, 상대는 턴 종료 시 공개
-                      int deaths = tile.population;
-                      SendResultToActorOnlyAndQueueReveal(
-                          actorNum,
-                          tileID, 0, 0, true, 0, false, deaths);
-                      pendingDestroyedTileIDs.Add(tileID);
-                      photonView.RPC("RPC_ConsumeItem_ToRequester", RpcTarget.All, actorNum, (int)ItemManager.ItemType.Bomb);
+                    Player p = PhotonNetwork.CurrentRoom.GetPlayer(actorNum);
+                    if (p != null)
+                        photonView.RPC(nameof(RPC_SetTileDestroyed), p, tileID, true);
 
-                      success = true;
-                      break;
-                  }
+                    photonView.RPC("RPC_ConsumeItem_ToRequester", RpcTarget.All, actorNum, (int)ItemManager.ItemType.Bomb);
+
+                    success = true;
+                    break;
+                }
 
             case ItemManager.ItemType.BioWeapon:
                 {
@@ -2181,6 +2203,8 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
 
         if (consumedAttackIdsLocal.Contains(attackId)) return;
         consumedAttackIdsLocal.Add(attackId);
+        if (virusConsumedThisTurnLocal) return;
+        virusConsumedThisTurnLocal = true;
         GamePlayer.LocalPlayer.OnVirusUsed();
     }
 
