@@ -985,6 +985,9 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
         if (!PhotonNetwork.IsMasterClient) return;
         if (MapGenerator.Instance == null || MapGenerator.Instance.allTiles == null) return;
 
+        float rateTeam1 = GetTeamFatalityRateSafe(1);
+        float rateTeam2 = GetTeamFatalityRateSafe(2);
+
         foreach (var tile in MapGenerator.Instance.allTiles.Values)
         {
             if (newlyInfectedTileIdsThisTurn.Contains(tile.tileID)) continue;
@@ -993,8 +996,7 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
             if (tile.ownerTeam != 1 && tile.ownerTeam != 2) continue;
             if (tile.population <= 0) continue;
 
-            if (!teamFatalityRates.TryGetValue(tile.ownerTeam, out float fatalityRate))
-                fatalityRate = 0f;
+            float fatalityRate = tile.ownerTeam == 1 ? rateTeam1 : rateTeam2;
 
             float finalFatality = fatalityRate * tile.fatalityMultiplier * tile.bioWeaponMultiplier;
             int deaths = VirusCalculator.Instance.CalculateDeaths(tile.population, finalFatality);
@@ -1014,6 +1016,19 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
         }
 
         newlyInfectedTileIdsThisTurn.Clear();
+    }
+
+    float GetTeamFatalityRateSafe(int team)
+    {
+        if (teamFatalityRates.TryGetValue(team, out float rate)) return rate;
+
+        foreach (var player in FindObjectsOfType<GamePlayer>())
+        {
+            if (player != null && player.myTeam == team)
+                return player.fatalityRate;
+        }
+
+        return 0f;
     }
 
     [PunRPC]
@@ -1416,8 +1431,8 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
             panelVictory.SetActive(true);
             if (btnEndTurn != null) btnEndTurn.SetActive(false);
 
-            if (winnerTeam == 3) txtVictoryMessage.text = "무승부!";
-            else txtVictoryMessage.text = $"TEAM {winnerTeam} 승리!";
+            if (txtVictoryMessage != null)
+                txtVictoryMessage.text = "터만홀로 이동하라";
         }
     }
 
