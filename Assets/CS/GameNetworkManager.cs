@@ -310,48 +310,47 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
             {
                 Debug.Log($"[긴급 처리] 퇴장한 플레이어 {otherPlayer.ActorNumber}의 대기 중인 공격 즉시 확정");
 
-                // 퇴장한 플레이어의 공격만 필터링하여 처리
-                var attacksToProcess = new Dictionary<int, List<AttackRequest>>();
+                // 퇴장한 플레이어가 공격한 타일 ID 목록 수집
+                var tileIDsToProcess = new HashSet<int>();
                 foreach (var kvp in pendingAttacks)
                 {
-                    var playerAttacks = kvp.Value.Where(a => a.attackerActorNum == otherPlayer.ActorNumber).ToList();
-                    if (playerAttacks.Count > 0)
+                    bool hasDisconnectedPlayerAttack = kvp.Value.Any(a => a.attackerActorNum == otherPlayer.ActorNumber);
+                    if (hasDisconnectedPlayerAttack)
                     {
-                        attacksToProcess[kvp.Key] = playerAttacks;
+                        tileIDsToProcess.Add(kvp.Key);
                     }
                 }
 
-                // 퇴장한 플레이어의 공격을 즉시 확정 처리
-                foreach (var kvp in attacksToProcess)
+                // 해당 타일들의 모든 공격을 함께 처리 (동시 공격 로직 유지)
+                foreach (int tileID in tileIDsToProcess)
                 {
-                    int tileID = kvp.Key;
-                    List<AttackRequest> attacks = kvp.Value;
+                    if (!pendingAttacks.ContainsKey(tileID)) continue;
 
-                    Debug.Log($"[긴급 처리] 타일 {tileID}: {attacks.Count}개 공격 확정");
+                    // 해당 타일의 모든 공격 가져오기 (퇴장 플레이어 + 상대 플레이어 모두)
+                    List<AttackRequest> allAttacksOnTile = new List<AttackRequest>(pendingAttacks[tileID]);
 
+                    Debug.Log($"[긴급 처리] 타일 {tileID}: {allAttacksOnTile.Count}개 공격 확정 (동시 공격 처리 포함)");
+
+                    if (MapGenerator.Instance == null || MapGenerator.Instance.allTiles == null)
+                    {
+                        Debug.LogWarning("[OnPlayerLeftRoom] MapGenerator.Instance or allTiles is null");
+                        continue;
+                    }
                     if (!MapGenerator.Instance.allTiles.ContainsKey(tileID)) continue;
                     HexTile targetTile = MapGenerator.Instance.allTiles[tileID];
 
-                    if (attacks.Count == 1)
+                    if (allAttacksOnTile.Count == 1)
                     {
-                        ProcessSingleAttack_Final(attacks[0], targetTile);
+                        ProcessSingleAttack_Final(allAttacksOnTile[0], targetTile);
                     }
                     else
                     {
-                        ProcessSimultaneousAttacks_Final(tileID, attacks);
+                        // 동시 공격 로직 적용 (양쪽 플레이어 공격 모두 포함)
+                        ProcessSimultaneousAttacks_Final(tileID, allAttacksOnTile);
                     }
 
-                    // pendingAttacks에서 제거
-                    foreach (var attack in attacks)
-                    {
-                        pendingAttacks[tileID].Remove(attack);
-                    }
-
-                    // 리스트가 비었으면 키 자체를 제거
-                    if (pendingAttacks[tileID].Count == 0)
-                    {
-                        pendingAttacks.Remove(tileID);
-                    }
+                    // 해당 타일의 모든 공격 제거
+                    pendingAttacks.Remove(tileID);
                 }
             }
         }
@@ -1290,9 +1289,6 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
             virusConsumedThisTurnLocal = false;
         }
 
-        if (GamePlayer.LocalPlayer != null)
-            GamePlayer.LocalPlayer.OnTurnStart(newTurn);
-
         // 로컬 플레이어의 턴 시작 처리 (행동력 초기화 등)
         if (GamePlayer.LocalPlayer != null)
         {
@@ -1315,7 +1311,7 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
             if (turnInRound == 1)
             {
 
-                // 3라운드: 청정구역 5개 생성 (라운드 시작 1회)
+                // 2라운드: 청정구역 5개 생성 (라운드 시작 1회)
                 if (roundNum == 2)
                     SpawnRandomCleanZones();
 
@@ -1561,6 +1557,7 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
     public void RPC_SetCleanZone(int tileID)
     {
         if (currentRound != 2) return;
+        if (MapGenerator.Instance == null || MapGenerator.Instance.allTiles == null) return;
         if (!MapGenerator.Instance.allTiles.ContainsKey(tileID)) return;
 
         HexTile tile = MapGenerator.Instance.allTiles[tileID];
@@ -1871,6 +1868,12 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
     // 내 영토와 인접 여부 확인 (다리 연결 포함)
     bool IsAdjacentToMyTerritory(HexTile target, int myTeam)
     {
+        if (MapGenerator.Instance == null || MapGenerator.Instance.allTiles == null)
+        {
+            Debug.LogWarning("[IsAdjacentToMyTerritory] MapGenerator.Instance or allTiles is null");
+            return true; // 안전하게 true 반환하여 게임 진행 허용
+        }
+
         bool hasAnyLand = false;
         foreach (var tile in MapGenerator.Instance.allTiles.Values)
         {
@@ -1879,7 +1882,12 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
         if (!hasAnyLand) return true; // 땅이 하나도 없으면 어디든 시작 가능
 
         // 직접 인접 확인
-        List<HexTile> neighbors = HexGridHelper.Instance.GetNeighbors(target);        
+        if (HexGridHelper.Instance == null)
+        {
+            Debug.LogWarning("[IsAdjacentToMyTerritory] HexGridHelper.Instance is null");
+            return true;
+        }
+        List<HexTile> neighbors = HexGridHelper.Instance.GetNeighbors(target);
 
         foreach (HexTile neighbor in neighbors)
         {
@@ -1902,6 +1910,17 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
     // 사거리(Range) 내에 내 영토가 있는지 확인
     bool IsInRangeOfMyTerritory(HexTile target, int myTeam, int range)
     {
+        if (MapGenerator.Instance == null || MapGenerator.Instance.allTiles == null)
+        {
+            Debug.LogWarning("[IsInRangeOfMyTerritory] MapGenerator.Instance or allTiles is null");
+            return false;
+        }
+        if (HexGridHelper.Instance == null)
+        {
+            Debug.LogWarning("[IsInRangeOfMyTerritory] HexGridHelper.Instance is null");
+            return false;
+        }
+
         foreach (var myTile in MapGenerator.Instance.allTiles.Values)
         {
             if (myTile.ownerTeam == myTeam)
@@ -2036,8 +2055,10 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
     public void RPC_RequestAttack(int tileID, int attackerActorNum, float infectionRate, float fatalityRate, int virusTypeIndex, float resistance, int attackId)
     {
         if (!PhotonNetwork.IsMasterClient) return;
+        if (MapGenerator.Instance == null || MapGenerator.Instance.allTiles == null) return;
         if (!MapGenerator.Instance.allTiles.ContainsKey(tileID)) return;
-        long attackKey = (((long)attackerActorNum) << 32) | (uint)attackId;
+        // 음수 attackId 처리를 위해 비트마스크 사용 (uint 캐스팅 대신)
+        long attackKey = (((long)attackerActorNum) << 32) | ((long)attackId & 0xFFFFFFFFL);
         if (processedAttackKeysThisTurn.Contains(attackKey))
         {
             Debug.LogWarning($"[BLOCK] Duplicate attackId ignored: actor={attackerActorNum} attackId={attackId} tile={tileID}");

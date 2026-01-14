@@ -31,6 +31,9 @@ public class VirusCalculator : MonoBehaviour
             successChance = (myInfectionRate / (myInfectionRate + targetResistance)) * 100f;
         }
 
+        // 성공 확률을 0~100 범위로 제한 (오버플로우 방지)
+        successChance = Mathf.Clamp(successChance, 0f, 100f);
+
         // 0 ~ 100 사이의 난수(주사위) 생성
         // 혹시 모를 System.Random과의 충돌 방지를 위해 UnityEngine.Random 명시
         float dice = UnityEngine.Random.Range(0f, 100f);

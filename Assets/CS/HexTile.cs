@@ -93,7 +93,8 @@ public class HexTile : MonoBehaviour
 
     private void Update()
     {
-        if (type == TileType.GROUND) textPopulation.text = population.ToString();
+        if (type == TileType.GROUND && textPopulation != null)
+            textPopulation.text = population.ToString();
     }
 
     // ★ [핵심 기능] 타일 클릭 시 상호작용 처리

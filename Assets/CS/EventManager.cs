@@ -165,6 +165,11 @@ public class EventManager : MonoBehaviourPunCallbacks
     [PunRPC]
     public void RPC_ApplyTileEvent(int tileID, string type, int value)
     {
+        if (MapGenerator.Instance == null || MapGenerator.Instance.allTiles == null)
+        {
+            Debug.LogWarning("[RPC_ApplyTileEvent] MapGenerator.Instance or allTiles is null");
+            return;
+        }
         if (MapGenerator.Instance.allTiles.ContainsKey(tileID))
         {
             HexTile tile = MapGenerator.Instance.allTiles[tileID];

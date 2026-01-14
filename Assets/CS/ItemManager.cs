@@ -164,6 +164,12 @@ void SetHint(string msg)
             return false;
         }
 
+        if (PhotonNetwork.LocalPlayer == null)
+        {
+            Debug.LogError("[Item] PhotonNetwork.LocalPlayer is null");
+            return false;
+        }
+
         // ✅ 마스터에게 사용 요청
         GameNetworkManager.Instance.photonView.RPC(
             "RPC_UseItem",
