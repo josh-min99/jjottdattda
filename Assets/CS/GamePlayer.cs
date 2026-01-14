@@ -176,7 +176,7 @@ public class GamePlayer : MonoBehaviourPunCallbacks
         // 1. ?�동??AP) 계산 공식: ?�염�?/ 20 (최소 1 보장)
         // ?�염률이 ?�을?�록 ???�에 ??많�? ?�동???????�음
         maxActionPoints = Mathf.FloorToInt(spreadPower / 20f);
-        if (maxActionPoints < 1) maxActionPoints = 1;
+        if (maxActionPoints < 0) maxActionPoints = 0;
 
         // 2. 바이?�스�??�시�??�력 ?�용
         if (currentVirus == VirusType.Rush)
@@ -404,6 +404,7 @@ public class GamePlayer : MonoBehaviourPunCallbacks
         if (type == VirusType.Gamble)
         {
             fatalityRate = prevFatalityRate * ((Random.value < 0.5f) ? 2.0f : 0.5f);
+            if (fatalityRate > 100f) fatalityRate = 100f;
         }
         if (GameUIManager.Instance != null)
             GameUIManager.Instance.RefreshPlayerStatsUI();
@@ -488,7 +489,7 @@ public class GamePlayer : MonoBehaviourPunCallbacks
     public void RecalculateActionPointsNow()
     {
         maxActionPoints = Mathf.FloorToInt(spreadPower / 20f);
-        if (maxActionPoints < 1) maxActionPoints = 1;
+        if (maxActionPoints < 0) maxActionPoints = 0;
 
         if (currentVirus == VirusType.Rush)
             maxActionPoints += 1;
@@ -504,7 +505,7 @@ public class GamePlayer : MonoBehaviourPunCallbacks
         if (used < 0) used = 0;
 
         maxActionPoints = Mathf.FloorToInt(spreadPower / 20f);
-        if (maxActionPoints < 1) maxActionPoints = 1;
+        if (maxActionPoints < 0) maxActionPoints = 0;
 
         if (currentVirus == VirusType.Rush)
             maxActionPoints += 1;

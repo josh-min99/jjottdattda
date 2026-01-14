@@ -92,12 +92,11 @@ public class ShopManager : MonoBehaviour
             me.infectionRate += 1f;
             Debug.Log($"전염률 강화 성공! 현재: {me.infectionRate}%");
 
-            me.RecalculateActionPointsNow();
+            me.RecalculateActionPointsPreserveUsed();
             
             // 다음 구매 가격 인상 (인플레이션)            
             UpdateCostUI();
-            me.RecalculateActionPointsNow();
-        }
+            }
     }
 
     // [구매 로직] 치사율 업그레이드
@@ -138,7 +137,7 @@ public class ShopManager : MonoBehaviour
         {
             me.spreadPower += 1f;
             Debug.Log($"치사율 강화 성공! 현재: {me.spreadPower}%");
-            me.RecalculateActionPointsNow();
+            me.RecalculateActionPointsPreserveUsed();
 
             // 가격 인상 및 UI 갱신            
             UpdateCostUI();

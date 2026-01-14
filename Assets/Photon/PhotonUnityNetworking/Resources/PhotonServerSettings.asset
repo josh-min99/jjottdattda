@@ -20,9 +20,9 @@ MonoBehaviour:
     AppVersion: 
     UseNameServer: 1
     FixedRegion: 
-    Server:
+    Server: 
     Port: 0
-    ProxyServer:
+    ProxyServer: 
     Protocol: 4
     EnableProtocolFallback: 1
     AuthMode: 0
@@ -95,6 +95,7 @@ MonoBehaviour:
   - RPC_AddDeathBonus
   - RPC_OnVirusUsed
   - RPC_SetDeathTotals
+  - RPC_SyncTileState
   DisableAutoOpenWizard: 1
   ShowSettings: 1
   DevRegionSetOnce: 1

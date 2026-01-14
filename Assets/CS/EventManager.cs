@@ -1,6 +1,7 @@
 ﻿using UnityEngine;
 using Photon.Pun;
 using System.Collections.Generic;
+using System.Linq;
 
 public class EventManager : MonoBehaviourPunCallbacks
 {
@@ -131,12 +132,18 @@ public class EventManager : MonoBehaviourPunCallbacks
         switch (type)
         {
             case EventType.Drone: // 방역 드론: 특정 타일 4곳 감염 불가 (기획서 요구사항)
-                int count = Mathf.Min(4, allTileIDs.Count);
+                var candidates = allTileIDs
+                    .Select(id => MapGenerator.Instance.allTiles[id])
+                    .Where(t => t.type != HexTile.TileType.WATER && t.ownerTeam == 0)
+                    .Select(t => t.tileID)
+                    .ToList();
+                int count = Mathf.Min(4, candidates.Count);
                 for(int i = 0; i < count; i++)
                 {
-                    int id = allTileIDs[Random.Range(0, allTileIDs.Count)];
+                    int pick = Random.Range(0, candidates.Count);
+                    int id = candidates[pick];
                     photonView.RPC("RPC_ApplyTileEvent", RpcTarget.All, id, "Immune", 0);
-                    allTileIDs.Remove(id); // 중복 방지
+                    candidates.RemoveAt(pick); // 중복 방지
                 }
                 Debug.Log($"[방역 드론] {count}개 타일 감염 불가 설정");
                 break;

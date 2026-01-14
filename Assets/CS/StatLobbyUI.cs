@@ -104,7 +104,7 @@ public class StatLobbyUI : MonoBehaviour
 
             fatalityText.text = $"치사율 : {displayFatality:0.0}%";
 
-            spreadText.text = $"전염력 : {GamePlayer.LocalPlayer.spreadPower}%";
+            spreadText.text = $"전염률 : {GamePlayer.LocalPlayer.spreadPower}%";
             virusTypeText.text = $"현재 바이러스\n{GamePlayer.LocalPlayer.currentVirus}";
         }
         if (!startRequested || readySent) return;        
@@ -146,7 +146,7 @@ public class StatLobbyUI : MonoBehaviour
 
         textInfection.text = $"치명율(확률): {valInfection}%";
         textFatality.text = $"치사율(사망): {valFatality}%";
-        textSpread.text = $"전염력(확산): {valSpread}";
+        textSpread.text = $"전염률(확산): {valSpread}";
 
         bool roomFull = Photon.Pun.PhotonNetwork.InRoom &&
                 Photon.Pun.PhotonNetwork.CurrentRoom.PlayerCount >= 2;
@@ -217,7 +217,7 @@ public class StatLobbyUI : MonoBehaviour
         if (displayFatality < 0f) displayFatality = 0f;
             fatalityText.text = $"치사율 : {displayFatality:0.0}%";
 
-            spreadText.text = $"전염력 : {GamePlayer.LocalPlayer.spreadPower}%";
+            spreadText.text = $"전염률 : {GamePlayer.LocalPlayer.spreadPower}%";
             virusTypeText.text = $"현재 바이러스\n{GamePlayer.LocalPlayer.currentVirus}";
     }
 

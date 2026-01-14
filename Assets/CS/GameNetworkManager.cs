@@ -149,6 +149,10 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
         public int attackId;
         public int originalPopulation; // 공격 시점의 타일 초기 인구
         public int originalOwnerTeam; // 공격 시점의 타일 소유 팀
+        public bool immediateResolved;
+        public bool immediateSuccess;
+        public int immediateDeaths;
+        public int immediateNewPop;
     }
 
     [System.Serializable]
@@ -977,6 +981,9 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
         // (6) 턴 종료 시 누적 사망자 보상 지급
         DistributeMoneyBasedOnCumulativeDeaths();
 
+        // (7) 턴 종료 시 전체 타일 상태 동기화
+        SyncAllTilesState_Master();
+
         // (5) 라운드 마지막 턴이면 다음 라운드로
         if (turnInRound == turnsPerRound)
         {
@@ -987,7 +994,7 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
             return;
         }
 
-        // (7) 다음 턴으로 넘어갈 때만 적용될 로직들
+        // (8) 다음 턴으로 넘어갈 때만 적용될 로직들
         ApplyPendingVaccineReverts();
 
         int nextTurnVal = currentTurn + 1;
@@ -2273,9 +2280,18 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
         if (vType != GamePlayer.VirusType.None)
             photonView.RPC(nameof(RPC_OnVirusUsed), RpcTarget.All, attack.attackerActorNum, attack.attackId);
 
-        // 사망자 및 인구 계산 (공격 시점의 초기 인구 사용)
-        int deaths = VirusCalculator.Instance.CalculateDeaths(attack.originalPopulation, finalFatality);
-        int newPop = attack.originalPopulation - deaths;
+        if (attack.immediateResolved && !attack.immediateSuccess)
+        {
+            photonView.RPC("RPC_SyncTileResult", RpcTarget.All,
+                attack.tileID, attack.originalOwnerTeam, attack.originalPopulation, false, attack.attackerActorNum, 0, false, 0);
+            Debug.Log($"[최종 확정] 타일 {attack.tileID} 실패 확정 (모두에게 브로드캐스트)");
+            return;
+        }
+
+        int deaths = attack.immediateResolved ? attack.immediateDeaths
+            : VirusCalculator.Instance.CalculateDeaths(attack.originalPopulation, finalFatality);
+        int newPop = attack.immediateResolved ? attack.immediateNewPop
+            : attack.originalPopulation - deaths;
         if (newPop < 0) newPop = 0;
 
         Debug.Log($"[최종 사망자 계산] 타일 {attack.tileID} - 초기인구:{attack.originalPopulation}, 치사율:{finalFatality:F1}%, 사망:{deaths}, 남은인구:{newPop}");
@@ -2291,11 +2307,9 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
             photonView.RPC(nameof(RPC_SetTileHiddenUntilTurn), RpcTarget.All, attack.tileID, hideUntilTurn);
         }
 
-        // 타일 상태 업데이트
         newlyInfectedTileIdsThisTurn.Add(attack.tileID);
         pendingVaccineReverts.Remove(attack.tileID);
 
-        // 모두에게 최종 결과 브로드캐스트
         photonView.RPC("RPC_SyncTileResult", RpcTarget.All,
             attack.tileID, attackerTeam, newPop, true, attack.attackerActorNum, immediateMoney, shouldHide, deaths);
 
@@ -2522,6 +2536,8 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
 
         // 감염 성공 여부 판단
         bool isSuccess = VirusCalculator.Instance.TryInfect(finalInfectionRate, attack.resistance);
+        attack.immediateResolved = true;
+        attack.immediateSuccess = isSuccess;
 
         if (isSuccess)
         {
@@ -2529,6 +2545,8 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
             int deaths = VirusCalculator.Instance.CalculateDeaths(attack.originalPopulation, finalFatality);
             int newPop = attack.originalPopulation - deaths;
             if (newPop < 0) newPop = 0;
+            attack.immediateDeaths = deaths;
+            attack.immediateNewPop = newPop;
 
             // CleanZone 보너스는 즉시 반영이 아닌 최종 확정 시에만 지급 (동시 도착 시 승리자만 받도록)
             int immediateMoney = 0;
@@ -2547,6 +2565,8 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
         }
         else
         {
+            attack.immediateDeaths = 0;
+            attack.immediateNewPop = attack.originalPopulation;
             // 실패 시에도 본인에게만 알림 (원래 타일 상태 유지)
             Player p = PhotonNetwork.CurrentRoom.GetPlayer(attack.attackerActorNum);
             if (p != null)
@@ -2714,6 +2734,33 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
         SyncDeathTotalsToAll();
     }
 
+    void SyncAllTilesState_Master()
+    {
+        if (!PhotonNetwork.IsMasterClient) return;
+        if (MapGenerator.Instance == null || MapGenerator.Instance.allTiles == null) return;
+
+        foreach (var tile in MapGenerator.Instance.allTiles.Values)
+        {
+            photonView.RPC(nameof(RPC_SyncTileState), RpcTarget.All,
+                tile.tileID, tile.ownerTeam, tile.population, tile.isHidden, tile.isDestroyed, tile.isCleanZone);
+        }
+    }
+
+    [PunRPC]
+    void RPC_SyncTileState(int tileID, int ownerTeam, int population, bool isHidden, bool isDestroyed, bool isCleanZone)
+    {
+        if (MapGenerator.Instance == null || MapGenerator.Instance.allTiles == null) return;
+        if (!MapGenerator.Instance.allTiles.ContainsKey(tileID)) return;
+
+        HexTile tile = MapGenerator.Instance.allTiles[tileID];
+        tile.ownerTeam = ownerTeam;
+        tile.population = population;
+        tile.isHidden = isHidden;
+        tile.isDestroyed = isDestroyed;
+        tile.isCleanZone = isCleanZone;
+        tile.UpdateVisuals(ownerTeam, population);
+    }
+
     void SyncDeathTotalsToAll()
     {
         if (!PhotonNetwork.IsMasterClient) return;
@@ -2847,6 +2894,12 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
                 if (tile.ownerTeam == newTeam && tile.population == newPop)
                 {
                     Debug.Log($"[중복 방지] 타일 {tileID} - 이미 적용된 동일 결과 무시");
+                    if (earnedMoney > 0 &&
+                        PhotonNetwork.LocalPlayer.ActorNumber == actorNum &&
+                        GamePlayer.LocalPlayer != null)
+                    {
+                        GamePlayer.LocalPlayer.AddMoney(earnedMoney);
+                    }
                     return;
                 }
                 else
@@ -2897,7 +2950,7 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
                 if (PhotonNetwork.LocalPlayer.ActorNumber == actorNum && GamePlayer.LocalPlayer != null)
                 {
                     // 청정 지역 보너스 즉시 지급
-                    if (earnedMoney > 0 && tile.isCleanZone) 
+                    if (earnedMoney > 0)
                     {
                         GamePlayer.LocalPlayer.AddMoney(earnedMoney);
                     }
