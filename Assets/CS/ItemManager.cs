@@ -16,8 +16,12 @@ public class ItemManager : MonoBehaviour
     public int countGeneScissors = 0;
     public int countBomb = 0;
     public int countBioWeapon = 0;
-    
+
     public int countGovtSecretDocument = 0;
+
+    // 아이템 중복 클릭 방지용
+    private float lastItemUseSendTime = -1f;
+    private int lastItemUseTile = -1;
 [Header("UI - Panel Root")]
     public GameObject itemPanel; // ✅ 아이템 패널 (켜지고 꺼지는 루트)
 
@@ -151,6 +155,14 @@ void SetHint(string msg)
         if (targetTile == null) return false;
         if (currentItem == ItemType.None) return false;
 
+        // 먼저 중복 클릭 체크 (아이템 소모 전에 체크)
+        float now = Time.time;
+        if (lastItemUseTile == targetTile.tileID && (now - lastItemUseSendTime) < 0.2f)
+        {
+            Debug.LogWarning($"[Item] 중복 클릭 방지: tile={targetTile.tileID}");
+            return false;
+        }
+
         if (!HasItem(currentItem))
         {
             SetHint("아이템이 부족합니다!");
@@ -178,6 +190,10 @@ void SetHint(string msg)
             PhotonNetwork.LocalPlayer.ActorNumber,
             (int)currentItem
         );
+
+        // 중복 방지 변수 업데이트
+        lastItemUseTile = targetTile.tileID;
+        lastItemUseSendTime = now;
 
         Debug.Log($"[Item] Request sent: {currentItem} -> tile {targetTile.tileID}");
 

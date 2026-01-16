@@ -65,6 +65,10 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
     private float lastLocalAttackSendTime = -1f;
     private int lastLocalAttackTile = -1;
     private int localAttackSeq = 0;
+
+    // 백신 중복 클릭 방지용
+    private float lastLocalVaccineSendTime = -1f;
+    private int lastLocalVaccineTile = -1;
     private HashSet<int> consumedAttackIdsLocal = new HashSet<int>();
 
     // ✅ 생화학 무기: "사용한 플레이어(actor)" 기준으로 이번 턴만 치사율 +10%
@@ -1648,22 +1652,25 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
                 return;
             }
 
-            if (!me.TryUseActionPoint())
-            {
-                Debug.Log("[클릭] 행동력이 부족합니다.");
-                return;
-            }
-
-            float resistance = (targetTile.ownerTeam != 0 && targetTile.ownerTeam != me.myTeam) ? 50f : 0f;
-
+            // 먼저 중복 클릭 체크 (AP 소모 전에 체크해야 중복 소모 방지)
             float now = Time.time;
             if (lastLocalAttackTile == targetTile.tileID && (now - lastLocalAttackSendTime) < 0.2f)
             {
                 Debug.LogWarning($"[클릭] 중복 공격 전송 방지: tile={targetTile.tileID}");
                 return;
             }
+
+            if (!me.TryUseActionPoint())
+            {
+                Debug.Log("[클릭] 행동력이 부족합니다.");
+                return;
+            }
+
+            // 중복 방지 변수는 AP 소모 성공 후에 업데이트
             lastLocalAttackTile = targetTile.tileID;
             lastLocalAttackSendTime = now;
+
+            float resistance = (targetTile.ownerTeam != 0 && targetTile.ownerTeam != me.myTeam) ? 50f : 0f;
 
             int attackId = ++localAttackSeq;
 
@@ -1681,6 +1688,14 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
         }
 
         // 3) 백신 모드 (방어/관리)
+        // 먼저 중복 클릭 체크 (사용 횟수 소모 전에 체크)
+        float vacNow = Time.time;
+        if (lastLocalVaccineTile == targetTile.tileID && (vacNow - lastLocalVaccineSendTime) < 0.2f)
+        {
+            Debug.LogWarning($"[VAC BLOCK] 중복 클릭 방지: tile={targetTile.tileID}");
+            return;
+        }
+
         // ✅ 항상 로그부터
         Debug.Log($"[VAC CLICK] tile={targetTile.tileID} owner={targetTile.ownerTeam} myTeam={me.myTeam} " +
                   $"uses={me.currentVaccineUses}/{me.maxVaccineUses} range={me.vaccineRange} rate={me.vaccineRecoveryRate}");
@@ -1731,6 +1746,10 @@ public class GameNetworkManager : MonoBehaviourPunCallbacks
             PhotonNetwork.LocalPlayer.ActorNumber,
             me.vaccineRecoveryRate
         );
+
+        // 중복 방지 변수 업데이트
+        lastLocalVaccineTile = targetTile.tileID;
+        lastLocalVaccineSendTime = vacNow;
     }
 
     [PunRPC]
